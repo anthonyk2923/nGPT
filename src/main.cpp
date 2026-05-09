@@ -1,0 +1,215 @@
+#include <Arduino.h>
+#include <ArduinoJson.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+
+const unsigned long BAUD_RATE = 115200;
+const int CALC_RX = 16;
+const int CALC_TX = 17;
+
+HardwareSerial CalcSerial(2);
+
+String packet = "";
+bool readingPacket = false;
+
+String ssid = "";
+String password = "";
+bool wifiConnected = false;
+
+const String openAIURL = "https://api.openai.com/v1/responses";
+const char *openAIAPIKey = OPENAI_API_KEY; // SECRET SECRET SECREETTTTTTTT
+
+String jsonBuffer;
+
+String cleanForCalc(String text)
+{
+  text.replace("#", "");
+  text.replace(";", ".");
+  text.replace("\n", "~");
+  text.replace("\r", "");
+  text.trim();
+
+  if (text.length() > 900)
+  {
+    text = text.substring(0, 900) + "...";
+  }
+
+  return text;
+}
+
+String askOpenAI(const String &prompt)
+{
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    wifiConnected = false;
+    return "ERR wifi disconnected";
+  }
+
+  WiFiClientSecure client;
+  HTTPClient http;
+
+  client.setInsecure();
+
+  if (!http.begin(client, openAIURL))
+  {
+    return "ERR http begin failed";
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + String(openAIAPIKey));
+
+  JsonDocument requestDoc;
+
+  requestDoc["model"] = "gpt-4.1-mini";
+  requestDoc["instructions"] =
+      "You are running on a TI-Nspire calculator through an ESP32. "
+      "Answer briefly and clearly. Use plain text only. "
+      "If given a math problem, solve it showing the main steps and give a very brief explanation. "
+      "Make your response brief yet readable. Separate new lines with ~ instead of actual newline characters. "
+      "Do not use the characters # or ; because they break the calculator serial protocol.";
+  requestDoc["input"] = prompt;
+  requestDoc["max_output_tokens"] = 500;
+
+  String requestBody;
+  serializeJson(requestDoc, requestBody);
+
+  int statusCode = http.POST(requestBody);
+  String responseBody = http.getString();
+  http.end();
+
+  if (statusCode <= 0)
+  {
+    return "ERR http " + http.errorToString(statusCode);
+  }
+
+  if (statusCode != 200)
+  {
+    return cleanForCalc("ERR API " + String(statusCode) + " " + responseBody);
+  }
+  JsonDocument responseDoc;
+  DeserializationError error = deserializeJson(responseDoc, responseBody);
+
+  if (error)
+  {
+    return "ERR json parse failed";
+  }
+
+  String answer = responseDoc["output"][0]["content"][0]["text"].as<String>();
+  if (answer.length() == 0)
+  {
+    return "ERR empty AI response";
+  }
+
+  return cleanForCalc(answer);
+}
+
+void sendToCalc(const String &message)
+{
+  CalcSerial.print("#");
+  CalcSerial.print(message);
+  CalcSerial.print(";");
+}
+
+void handleCommand(const String &command)
+{
+  if (command == "ping")
+  {
+    sendToCalc("pong");
+  }
+  else if (command.startsWith("ask "))
+  {
+    String prompt = command.substring(4);
+
+    if (wifiConnected)
+    {
+      String answer = askOpenAI(prompt);
+      sendToCalc("ai " + answer);
+    }
+    else
+    {
+      sendToCalc("ERR no wifi connection");
+    }
+  }
+  else if (command.startsWith("wifi "))
+  {
+    String wifiData = command.substring(5);
+    int separatorIndex = wifiData.indexOf(':');
+
+    if (separatorIndex != -1)
+    {
+      ssid = wifiData.substring(0, separatorIndex);
+      password = wifiData.substring(separatorIndex + 1);
+
+      wifiConnected = false;
+
+      WiFi.disconnect(true);
+      delay(200);
+
+      WiFi.begin(ssid.c_str(), password.c_str());
+
+      unsigned long startTime = millis();
+
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 30000)
+      {
+        delay(500);
+      }
+      if (WiFi.status() == WL_CONNECTED)
+      {
+        wifiConnected = true;
+        sendToCalc("wifi connected");
+      }
+      else
+      {
+        wifiConnected = false;
+        sendToCalc("wifi failed");
+      }
+    }
+    else
+    {
+      sendToCalc("ERR invalid wifi format");
+    }
+  }
+  else
+  {
+    sendToCalc("ERR unknown command");
+  }
+}
+
+void readFromCalc()
+{
+  while (CalcSerial.available())
+  {
+    char c = CalcSerial.read();
+    if (c == '#')
+    {
+      packet = "";
+      readingPacket = true;
+    }
+    else if (c == ';' && readingPacket)
+    {
+      readingPacket = false;
+      packet.trim();
+      if (packet.length() > 0)
+      {
+        handleCommand(packet);
+      }
+      packet = "";
+    }
+    else if (readingPacket)
+    {
+      packet += c;
+    }
+  }
+}
+
+void setup()
+{
+  CalcSerial.begin(BAUD_RATE, SERIAL_8N1, CALC_RX, CALC_TX);
+  delay(500);
+  sendToCalc("ESP32 ready");
+}
+void loop()
+{
+  readFromCalc();
+}
