@@ -243,44 +243,60 @@ void loop()
 {
   readFromCalc();
 }
-
-// #include <Arduino.h>
-// #include <ArduinoJson.h>
-// #include <WiFi.h>
-// #include <HTTPClient.h>
-// #include <WiFiClientSecure.h>
+//  #include <Arduino.h>
+//  #include <ArduinoJson.h>
+//  #include <WiFi.h>
+//  #include <HTTPClient.h>
+//  #include <WiFiClientSecure.h>
 
 // const unsigned long BAUD_RATE = 115200;
-// const int CALC_RX = 16;
-// const int CALC_TX = 17;
+// const size_t CALC_LINE_LENGTH = 30;
 
-// HardwareSerial CalcSerial(2);
-
-// String packet = "";
-// bool readingPacket = false;
-
+// String line = "";
 // String ssid = "";
 // String password = "";
 // bool wifiConnected = false;
 
 // const String openAIURL = "https://api.openai.com/v1/responses";
-// const char *openAIAPIKey = OPENAI_API_KEY; // SECRET SECRET SECREETTTTTTTT
-
-// String jsonBuffer;
+// const char *openAIAPIKey = OPENAI_API_KEY;
 
 // String cleanForCalc(String text)
 // {
-//   text.replace("#", "");
-//   text.replace(";", ".");
-//   text.replace("\n", "~");
+//   text.replace("\n", " ~ ");
 //   text.replace("\r", "");
 //   text.trim();
 
 //   if (text.length() > 900)
 //   {
+//     text = text.substring(0, 900) + "...";
 //   }
 
 //   return text;
+// }
+
+// void sendLine(const String &message)
+// {
+//   if (message.length() == 0)
+//   {
+//     Serial.print("\r\n");
+//     Serial.flush();
+//     return;
+//   }
+
+//   for (size_t start = 0; start < message.length(); start += CALC_LINE_LENGTH)
+//   {
+//     size_t end = start + CALC_LINE_LENGTH;
+//     if (end > message.length())
+//     {
+//       end = message.length();
+//     }
+
+//     String chunk = message.substring(start, end);
+//     Serial .print(chunk);
+//     Serial.print("\r\n");
+//   }
+
+//   Serial.flush();
 // }
 
 // String askOpenAI(const String &prompt)
@@ -311,8 +327,7 @@ void loop()
 //       "You are running on a TI-Nspire calculator through an ESP32. "
 //       "Answer briefly and clearly. Use plain text only. "
 //       "If given a math problem, solve it showing the main steps and give a very brief explanation. "
-//       "Make your response brief yet readable. Separate new lines with ~ instead of actual newline characters. "
-//       "Do not use the characters # or ; because they break the calculator serial protocol.";
+//       "Make your response brief yet readable. Use ~ instead of new lines.";
 //   requestDoc["input"] = prompt;
 //   requestDoc["max_output_tokens"] = 500;
 
@@ -332,6 +347,7 @@ void loop()
 //   {
 //     return cleanForCalc("ERR API " + String(statusCode) + " " + responseBody);
 //   }
+
 //   JsonDocument responseDoc;
 //   DeserializationError error = deserializeJson(responseDoc, responseBody);
 
@@ -341,6 +357,7 @@ void loop()
 //   }
 
 //   String answer = responseDoc["output"][0]["content"][0]["text"].as<String>();
+
 //   if (answer.length() == 0)
 //   {
 //     return "ERR empty AI response";
@@ -349,111 +366,107 @@ void loop()
 //   return cleanForCalc(answer);
 // }
 
-// void sendToCalc(const String &message)
+// void handleCommand(String command)
 // {
-//   CalcSerial.print("#");
-//   CalcSerial.print(message);
-//   CalcSerial.print(";");
-// }
+//   command.trim();
 
-// void handleCommand(const String &command)
-// {
-//   if (command == "ping")
+//   if (command.startsWith("ISTI"))
 //   {
-//     sendToCalc("pong");
+//     sendLine("TISTEM");
 //   }
-//   else if (command.startsWith("ask "))
+//   else if (command == "PING")
+//   {
+//     sendLine("PONG");
+//   }
+//   else if (command.startsWith("WIFI "))
+//   {
+//     String wifiData = command.substring(5);
+//     int separatorIndex = wifiData.indexOf('|');
+
+//     if (separatorIndex == -1)
+//     {
+//       sendLine("ERR use WIFI ssid|password");
+//       return;
+//     }
+
+//     ssid = wifiData.substring(0, separatorIndex);
+//     password = wifiData.substring(separatorIndex + 1);
+
+//     wifiConnected = false;
+
+//     WiFi.disconnect(true);
+//     delay(200);
+
+//     WiFi.begin(ssid.c_str(), password.c_str());
+
+//     unsigned long startTime = millis();
+
+//     while (WiFi.status() != WL_CONNECTED && millis() - startTime < 30000)
+//     {
+//       delay(500);
+//     }
+
+//     if (WiFi.status() == WL_CONNECTED)
+//     {
+//       wifiConnected = true;
+//       sendLine("WIFI OK");
+//     }
+//     else
+//     {
+//       wifiConnected = false;
+//       sendLine("WIFI FAIL");
+//     }
+//   }
+//   else if (command.startsWith("ASK "))
 //   {
 //     String prompt = command.substring(4);
 
 //     if (wifiConnected)
 //     {
 //       String answer = askOpenAI(prompt);
-//       sendToCalc("ai " + answer);
+//       sendLine(answer);
 //     }
 //     else
 //     {
-//       sendToCalc("ERR no wifi connection");
-//     }
-//   }
-//   else if (command.startsWith("wifi "))
-//   {
-//     String wifiData = command.substring(5);
-//     int separatorIndex = wifiData.indexOf(':');
-
-//     if (separatorIndex != -1)
-//     {
-//       ssid = wifiData.substring(0, separatorIndex);
-//       password = wifiData.substring(separatorIndex + 1);
-
-//       wifiConnected = false;
-
-//       WiFi.disconnect(true);
-//       delay(200);
-
-//       WiFi.begin(ssid.c_str(), password.c_str());
-
-//       unsigned long startTime = millis();
-
-//       while (WiFi.status() != WL_CONNECTED && millis() - startTime < 30000)
-//       {
-//         delay(500);
-//       }
-//       if (WiFi.status() == WL_CONNECTED)
-//       {
-//         wifiConnected = true;
-//         sendToCalc("wifi connected");
-//       }
-//       else
-//       {
-//         wifiConnected = false;
-//         sendToCalc("wifi failed");
-//       }
-//     }
-//     else
-//     {
-//       sendToCalc("ERR invalid wifi format");
+//       sendLine("ERR no wifi connection");
 //     }
 //   }
 //   else
 //   {
-//     sendToCalc("ERR unknown command");
+//     sendLine("ERR unknown command");
 //   }
 // }
 
 // void readFromCalc()
 // {
-//   while (CalcSerial.available())
+//   while (Serial.available())
 //   {
-//     char c = CalcSerial.read();
-//     if (c == '#')
+//     char c = Serial.read();
+
+//     if (c == '\n')
 //     {
-//       packet = "";
-//       readingPacket = true;
-//     }
-//     else if (c == ';' && readingPacket)
-//     {
-//       readingPacket = false;
-//       packet.trim();
-//       if (packet.length() > 0)
+//       line.trim();
+
+//       if (line.length() > 0)
 //       {
-//         handleCommand(packet);
+//         handleCommand(line);
 //       }
-//       packet = "";
+
+//       line = "";
 //     }
-//     else if (readingPacket)
+//     else if (c != '\r')
 //     {
-//       packet += c;
+//       line += c;
 //     }
 //   }
 // }
 
 // void setup()
 // {
-//   CalcSerial.begin(BAUD_RATE, SERIAL_8N1, CALC_RX, CALC_TX);
-//   delay(500);
-//   sendToCalc("ESP32 ready");
+//   Serial.begin(115200);
+//   delay(1000);
 // }
+
 // void loop()
 // {
 //   readFromCalc();
